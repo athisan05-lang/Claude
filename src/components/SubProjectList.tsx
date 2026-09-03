@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { Project } from '../lib/types';
 import { formatCHF } from '../lib/numberFormat';
+import { cheapestTotalForSubProject } from '../lib/cost';
 
 interface Props {
   project: Project;
@@ -9,17 +10,6 @@ interface Props {
   onOpenSubProject: (id: string) => void;
   onCreateSubProject: (name: string) => void;
   onDeleteSubProject: (id: string) => void;
-}
-
-function cheapestTotal(sp: Project['subProjects'][number]): number {
-  let total = 0;
-  for (const group of sp.groups) {
-    const totals = Object.entries(group.assignments)
-      .map(([offerId, rowId]) => sp.offers.find((o) => o.id === offerId)?.rows.find((r) => r.id === rowId)?.totalPrice)
-      .filter((v): v is number => v != null);
-    if (totals.length) total += Math.min(...totals);
-  }
-  return total;
 }
 
 export default function SubProjectList({
@@ -96,7 +86,7 @@ export default function SubProjectList({
                 </div>
                 {sp.groups.length > 0 && (
                   <div className="mt-2 text-sm font-medium text-green-700 dark:text-green-400">
-                    günstigste Kombination: CHF {formatCHF(cheapestTotal(sp))}
+                    günstigste Kombination: CHF {formatCHF(cheapestTotalForSubProject(sp))}
                   </div>
                 )}
               </button>

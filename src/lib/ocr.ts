@@ -18,10 +18,12 @@ function getWorker(): Promise<Worker> {
     // public/-Ordner (aus den npm-Paketen tesseract.js-core und @tesseract.js-data/deu
     // kopiert), statt sie von einem externen CDN nachzuladen - läuft dadurch auch ohne
     // Zugriff auf Drittanbieter-CDNs und bleibt näher am "alles lokal"-Prinzip der App.
+    // BASE_URL berücksichtigt einen evtl. Unterpfad (z.B. "/Claude/" auf GitHub Pages).
+    const base = import.meta.env.BASE_URL;
     sharedWorker = createWorker('deu', 1, {
-      workerPath: '/tesseract/worker.min.js',
-      corePath: '/tesseract/tesseract-core-simd.wasm.js',
-      langPath: '/tesseract',
+      workerPath: `${base}tesseract/worker.min.js`,
+      corePath: `${base}tesseract/tesseract-core-simd.wasm.js`,
+      langPath: `${base}tesseract`,
     });
   }
   return sharedWorker;
