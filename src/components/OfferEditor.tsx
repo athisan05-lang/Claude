@@ -34,6 +34,13 @@ export default function OfferEditor({ offer, onRename, onUpdateRow, onDeleteRow,
 
   return (
     <div className="rounded-lg border border-neutral-200 dark:border-neutral-700">
+      {offer.ocrUsed && (
+        <div className="border-b border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300">
+          ⚠ Diese Offerte war ein eingescanntes PDF und wurde per Texterkennung (OCR) gelesen. Das ist weniger
+          zuverlässig als bei normalen PDFs, vor allem bei Zahlen – bitte alle Werte hier besonders sorgfältig
+          gegen das Original-PDF prüfen (Button "PDF" pro Zeile).
+        </div>
+      )}
       <div className="flex flex-wrap items-center gap-2 border-b border-neutral-200 bg-neutral-50 px-4 py-3 dark:border-neutral-700 dark:bg-neutral-800">
         <input
           className="min-w-0 flex-1 rounded border border-transparent bg-transparent px-1 py-0.5 text-base font-semibold text-neutral-800 hover:border-neutral-300 focus:border-blue-400 focus:outline-none dark:text-neutral-100"

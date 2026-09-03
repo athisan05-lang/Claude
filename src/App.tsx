@@ -27,6 +27,8 @@ export default function App() {
   const [subProjectId, setSubProjectId] = useState<string | null>(null);
   const [tab, setTab] = useState<'offerten' | 'vergleich'>('offerten');
   const [busy, setBusy] = useState(false);
+  const [progressText, setProgressText] = useState('');
+  const [uploadError, setUploadError] = useState('');
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
@@ -99,25 +101,44 @@ export default function App() {
   async function handleFiles(files: File[]) {
     if (!subProject) return;
     setBusy(true);
+    setProgressText('');
+    setUploadError('');
+    const failed: string[] = [];
     try {
       const newOffers: Offer[] = [];
       for (const file of files) {
-        const buf = await file.arrayBuffer();
-        const offerId = uuid();
-        const { rows, pageCount } = await parseOfferPdf(buf, offerId);
-        newOffers.push({
-          id: offerId,
-          name: file.name.replace(/\.pdf$/i, ''),
-          fileName: file.name,
-          fileData: buf,
-          pageCount,
-          rows,
-          createdAt: Date.now(),
-        });
+        try {
+          const buf = await file.arrayBuffer();
+          const offerId = uuid();
+          const { rows, pageCount, ocrUsed } = await parseOfferPdf(buf, offerId, (p) =>
+            setProgressText(`${file.name}: Seite ${p.page}/${p.pageCount} per OCR lesen…`),
+          );
+          newOffers.push({
+            id: offerId,
+            name: file.name.replace(/\.pdf$/i, ''),
+            fileName: file.name,
+            fileData: buf,
+            pageCount,
+            rows,
+            createdAt: Date.now(),
+            ocrUsed,
+          });
+        } catch (err) {
+          console.error('PDF-Verarbeitung fehlgeschlagen:', file.name, err);
+          failed.push(file.name);
+        }
       }
-      updateSubProject(subProject.id, (sp) => withReconciledGroups({ ...sp, offers: [...sp.offers, ...newOffers] }));
+      if (newOffers.length > 0) {
+        updateSubProject(subProject.id, (sp) => withReconciledGroups({ ...sp, offers: [...sp.offers, ...newOffers] }));
+      }
+      if (failed.length > 0) {
+        setUploadError(
+          `${failed.join(', ')} konnte${failed.length === 1 ? '' : 'n'} nicht verarbeitet werden. Bitte nochmals versuchen oder die Positionen manuell erfassen.`,
+        );
+      }
     } finally {
       setBusy(false);
+      setProgressText('');
     }
   }
 
@@ -236,7 +257,12 @@ export default function App() {
 
       {tab === 'offerten' && (
         <div className="space-y-6">
-          <UploadArea onFiles={handleFiles} busy={busy} />
+          <UploadArea onFiles={handleFiles} busy={busy} progressText={progressText} />
+          {uploadError && (
+            <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300">
+              {uploadError}
+            </div>
+          )}
           {subProject.offers.map((offer) => (
             <OfferEditor
               key={offer.id}

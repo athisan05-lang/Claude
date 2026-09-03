@@ -25,6 +25,8 @@ export interface Offer {
   pageCount: number;
   rows: PositionRow[];
   createdAt: number;
+  /** true = mind. eine Seite hatte keine Textebene und wurde per OCR gelesen (weniger zuverlässig, besonders bei Zahlen) */
+  ocrUsed?: boolean;
 }
 
 export interface MatchGroup {

@@ -1,5 +1,6 @@
 import { pdfjsLib } from './pdfjsSetup';
 import { parseSwissNumber } from './numberFormat';
+import { needsOcr, ocrPage, type OcrProgress } from './ocr';
 import type { PositionRow } from './types';
 
 const UNIT_WORDS = [
@@ -45,11 +46,15 @@ interface TextRow {
   text: string;
 }
 
-async function extractTextRows(data: ArrayBuffer): Promise<{ rows: TextRow[]; pageCount: number }> {
+async function extractTextRows(
+  data: ArrayBuffer,
+  onProgress?: OcrProgress,
+): Promise<{ rows: TextRow[]; pageCount: number; ocrUsed: boolean }> {
   // .slice(0) kopiert den Buffer: pdf.js "transferred" das Original sonst an den Worker,
   // wodurch es beim Original-Offer-Objekt nicht mehr lesbar wäre.
   const doc = await pdfjsLib.getDocument({ data: data.slice(0) }).promise;
   const rows: TextRow[] = [];
+  let ocrUsed = false;
 
   for (let pageNum = 1; pageNum <= doc.numPages; pageNum++) {
     const page = await doc.getPage(pageNum);
@@ -61,6 +66,16 @@ async function extractTextRows(data: ArrayBuffer): Promise<{ rows: TextRow[]; pa
       const it = raw as { str?: string; transform?: number[] };
       if (!it.str || !it.str.trim() || !it.transform) continue;
       items.push({ x: it.transform[4], y: it.transform[5], str: it.str });
+    }
+
+    if (needsOcr(items.length)) {
+      // Keine Textebene -> die Seite ist ein eingescanntes Bild. Per Texterkennung (OCR)
+      // lesen; das dauert deutlich länger als normales Text-PDFs auslesen.
+      ocrUsed = true;
+      onProgress?.({ page: pageNum, pageCount: doc.numPages, status: 'Texterkennung (OCR) läuft', progress: 0 });
+      const ocrRows = await ocrPage(doc, pageNum, doc.numPages, onProgress);
+      rows.push(...ocrRows);
+      continue;
     }
 
     // Nach Zeilen gruppieren (Textfragmente mit ähnlichem y).
@@ -91,7 +106,7 @@ async function extractTextRows(data: ArrayBuffer): Promise<{ rows: TextRow[]; pa
     }
   }
 
-  return { rows, pageCount: doc.numPages };
+  return { rows, pageCount: doc.numPages, ocrUsed };
 }
 
 const BOILERPLATE_PATTERNS = [
@@ -219,8 +234,9 @@ function isChildOf(newX: number, newNum: string, top: StackFrame): boolean {
 export async function parseOfferPdf(
   data: ArrayBuffer,
   idPrefix: string,
-): Promise<{ rows: PositionRow[]; pageCount: number }> {
-  const { rows: allRawRows, pageCount } = await extractTextRows(data);
+  onProgress?: OcrProgress,
+): Promise<{ rows: PositionRow[]; pageCount: number; ocrUsed: boolean }> {
+  const { rows: allRawRows, pageCount, ocrUsed } = await extractTextRows(data, onProgress);
 
   // Deckblatt/Anschreiben (vor dem eigentlichen NPK-Ausdruck) und die abschliessende
   // Zusammenfassung ("Zusammenstellung: 100 Vorarbeiten 9'184.00 ...") ausklammern:
@@ -304,5 +320,5 @@ export async function parseOfferPdf(
     }
   }
 
-  return { rows: positions, pageCount };
+  return { rows: positions, pageCount, ocrUsed };
 }

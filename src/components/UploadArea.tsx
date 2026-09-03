@@ -3,9 +3,10 @@ import { useRef, useState } from 'react';
 interface Props {
   onFiles: (files: File[]) => void;
   busy: boolean;
+  progressText?: string;
 }
 
-export default function UploadArea({ onFiles, busy }: Props) {
+export default function UploadArea({ onFiles, busy, progressText }: Props) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [dragOver, setDragOver] = useState(false);
 
@@ -42,6 +43,7 @@ export default function UploadArea({ onFiles, busy }: Props) {
       >
         {busy ? 'Wird verarbeitet…' : 'PDFs auswählen'}
       </button>
+      {busy && progressText && <p className="mt-2 text-xs text-neutral-500">{progressText}</p>}
       <input
         ref={inputRef}
         type="file"
