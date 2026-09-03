@@ -152,6 +152,9 @@ function tryParseRow(row: TextRow, idPrefix: string, index: number): PositionRow
   };
 }
 
+const NO_DIGITS = /^[^\d]*$/;
+const MAX_CONTINUATION_LINES = 3;
+
 export async function parseOfferPdf(
   data: ArrayBuffer,
   idPrefix: string,
@@ -159,12 +162,38 @@ export async function parseOfferPdf(
   const { rows: textRows, pageCount } = await extractTextRows(data);
   const positions: PositionRow[] = [];
   let index = 0;
+  let lastRow: PositionRow | null = null;
+  let continuationCount = 0;
+
   for (const row of textRows) {
     const parsed = tryParseRow(row, idPrefix, index);
     if (parsed) {
       positions.push(parsed);
       index++;
+      lastRow = parsed;
+      continuationCount = 0;
+      continue;
+    }
+
+    // Beschreibungen, die im PDF über mehrere Zeilen umbrechen, an die letzte
+    // erkannte Position anhängen (nur reiner Fliesstext ohne Zahlen, gleiche Seite).
+    const text = row.text.trim();
+    if (
+      lastRow &&
+      lastRow.page === row.page &&
+      continuationCount < MAX_CONTINUATION_LINES &&
+      text.length >= 3 &&
+      text.length <= 150 &&
+      NO_DIGITS.test(text)
+    ) {
+      lastRow.description = `${lastRow.description} ${text}`.trim();
+      lastRow.rawText = `${lastRow.rawText} / ${text}`;
+      continuationCount++;
+    } else {
+      lastRow = null;
+      continuationCount = 0;
     }
   }
+
   return { rows: positions, pageCount };
 }
