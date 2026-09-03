@@ -3,14 +3,36 @@ import { parseSwissNumber } from './numberFormat';
 import type { PositionRow } from './types';
 
 const UNIT_WORDS = [
-  'stk', 'st', 'stück', 'psch', 'pau', 'pauschal', 'lfm', 'lm', 'm2', 'm3', 'dm2', 'dm3',
+  'stk', 'st', 'stück', 'psch', 'pau', 'pauschal', 'lfm', 'lm', 'le', 'gl', 'm2', 'm3', 'dm2', 'dm3',
   'kg', 't', 'to', 'h', 'std', 'l', 'ha', 'a', 'm',
 ];
 // Längste zuerst, damit z.B. "m2" vor "m" matcht.
 const UNIT_PATTERN = UNIT_WORDS.slice().sort((a, b) => b.length - a.length).join('|');
 const UNIT_REGEX = new RegExp(`(?:^|\\s)(${UNIT_PATTERN})(?:\\.|\\s|$)`, 'i');
+const UNIT_REGEX_GLOBAL = new RegExp(UNIT_REGEX.source, 'gi');
 
-const CODE_REGEX = /^([A-ZÄÖÜ]{0,3}\s?\d{1,4}(?:[.\s]\d{2,4}){1,4}\.?)\s+(?=\S)/;
+/**
+ * Letztes (nicht erstes!) Vorkommen eines Einheitswortes im Text. Beschreibungen
+ * enthalten oft beiläufig ein Wort wie "m" (z.B. "Weglänge über m 50,0."), bevor die
+ * eigentliche Mengen-/Preisspalte kommt - die ist immer die zuletzt im Text stehende.
+ */
+function findUnitMatch(text: string): RegExpExecArray | null {
+  UNIT_REGEX_GLOBAL.lastIndex = 0;
+  let last: RegExpExecArray | null = null;
+  let m: RegExpExecArray | null;
+  while ((m = UNIT_REGEX_GLOBAL.exec(text))) {
+    last = m;
+    if (m.index === UNIT_REGEX_GLOBAL.lastIndex) UNIT_REGEX_GLOBAL.lastIndex++;
+  }
+  return last;
+}
+
+// Positionsnummer am Zeilenanfang: entweder ein zusammengesetzter Code wie "211.100"
+// (klassisches Format, alles inkl. Preis auf einer Zeile), oder eine einzelne "nackte"
+// Nummer wie "111"/"10102" (typisches NPK-Ausdruck-Format, bei dem sich Kapitel/Titel/
+// Ausführungsart über mehrere, unterschiedlich weit eingerückte Zeilen verschachteln).
+// Optionales "R"/"R " davor kennzeichnet Regie-Positionen.
+const LEADING_CODE_REGEX = /^(?:R\s?)?([A-ZÄÖÜ]{0,3}\d{1,6}(?:[.\s]\d{2,6}){0,4})\.?\s+(\S.*)$/;
 
 // Erst Zahlen mit Tausendertrennzeichen (1'234 / 1 234), sonst eine einfache Ziffernfolge -
 // so bleibt z.B. "2940.00" (ohne Trennzeichen) am Stück, statt bei 3 Ziffern abgeschnitten zu werden.
@@ -19,6 +41,7 @@ const NUMBER_TOKEN = /-?(?:\d{1,3}(?:[’'\s]\d{3})+|\d+)(?:[.,]\d{1,2})?/g;
 interface TextRow {
   page: number;
   y: number;
+  x: number;
   text: string;
 }
 
@@ -61,137 +84,223 @@ async function extractTextRows(data: ArrayBuffer): Promise<{ rows: TextRow[]; pa
         if (prevEndX !== null && item.x - prevEndX > 8) text += '  ';
         else if (text) text += ' ';
         text += item.str.trim();
-        // grobe Schätzung des Endes (Zeichenbreite unbekannt, daher nur x-Start als Referenz)
         prevEndX = item.x;
       }
       text = text.replace(/\s+/g, ' ').trim();
-      if (text) rows.push({ page: pageNum, y: group[0].y, text });
+      if (text) rows.push({ page: pageNum, y: group[0].y, x: group[0].x, text });
     }
   }
 
   return { rows, pageCount: doc.numPages };
 }
 
-function tryParseRow(row: TextRow, idPrefix: string, index: number): PositionRow | null {
-  const codeMatch = row.text.match(CODE_REGEX);
-  if (!codeMatch) return null;
+const BOILERPLATE_PATTERNS = [
+  /^NPK-Bau\b/i,
+  /^NPK\b.*\(V\d{4}\)/i,
+  /^Seite:?\s*\d+/i,
+  /^\d{1,2}\.\d{1,2}\.\d{2,4}$/,
+  /^Gliederungen:/i,
+  /^Zusammenstellung:?$/i,
+  /^Brutto-Betrag/i,
+];
 
-  const code = codeMatch[1].trim().replace(/\s+/g, '.').replace(/\.+$/, '');
-  const rest = row.text.slice(codeMatch[0].length);
+/** Entfernt Kopf-/Fusszeilen: alles, was auf sehr vielen Seiten identisch wiederkehrt. */
+function filterBoilerplate(rows: TextRow[], pageCount: number): TextRow[] {
+  if (pageCount < 3) return rows.filter((r) => !BOILERPLATE_PATTERNS.some((p) => p.test(r.text)));
 
-  const unitMatch = rest.match(UNIT_REGEX);
+  const pagesByText = new Map<string, Set<number>>();
+  for (const row of rows) {
+    let set = pagesByText.get(row.text);
+    if (!set) pagesByText.set(row.text, (set = new Set()));
+    set.add(row.page);
+  }
+  const threshold = Math.max(3, Math.ceil(pageCount * 0.5));
 
-  let description = rest;
-  let quantity: number | null = null;
-  let unit = '';
-  let unitPrice: number | null = null;
-  let totalPrice: number | null = null;
+  return rows.filter((r) => {
+    if (BOILERPLATE_PATTERNS.some((p) => p.test(r.text))) return false;
+    const set = pagesByText.get(r.text);
+    if (set && set.size >= threshold) return false;
+    return true;
+  });
+}
+
+interface PriceInfo {
+  description: string;
+  quantity: number | null;
+  unit: string;
+  unitPrice: number | null;
+  totalPrice: number | null;
+}
+
+/**
+ * Sucht in einem Textstück nach Menge/Einheit/Einheitspreis/Total. null, wenn nichts
+ * Verwertbares gefunden wird.
+ *
+ * Übliches Spaltenformat in NPK-Ausdrucken ist "Einheit Menge Einheitspreis Total"
+ * (z.B. "St 10.000 150.00 1'500.00" - die Einheit steht VOR der Menge). Zur
+ * Absicherung wird trotzdem geprüft, ob stattdessen eine Zahl VOR der Einheit steht
+ * (klassisches "Menge Einheit ..."-Format); das hat Vorrang, wenn zusätzlich nach der
+ * Einheit nur noch genau 2 Zahlen (EP/Total) folgen.
+ *
+ * Ohne erkennbare Einheit wird nichts als Preis akzeptiert (siehe unten) - Fliesstext
+ * enthält sonst zu leicht zufällige Zahlenpaare, die keine echte Preiszeile sind
+ * (Verweise wie "Pos. 110.100" oder Bereichsangaben wie "Abschnitten 200 bis 500").
+ */
+function extractPricing(text: string): PriceInfo | null {
+  const unitMatch = findUnitMatch(text);
 
   if (unitMatch && unitMatch.index !== undefined) {
-    unit = unitMatch[1];
-    const before = rest.slice(0, unitMatch.index);
-    const after = rest.slice(unitMatch.index + unitMatch[0].length);
+    const unit = unitMatch[1];
+    const before = text.slice(0, unitMatch.index);
+    const after = text.slice(unitMatch.index + unitMatch[0].length);
 
     const beforeNumbers = before.match(NUMBER_TOKEN) ?? [];
     const afterNumbers = after.match(NUMBER_TOKEN) ?? [];
 
-    if (beforeNumbers.length > 0) {
+    let quantity: number | null = null;
+    let unitPrice: number | null = null;
+    let totalPrice: number | null = null;
+    let description: string;
+
+    if (afterNumbers.length >= 3) {
+      // Einheit Menge EP Total (Standardfall in dieser Art von Ausdruck).
+      quantity = parseSwissNumber(afterNumbers[0] ?? '');
+      unitPrice = parseSwissNumber(afterNumbers[afterNumbers.length - 2]);
+      totalPrice = parseSwissNumber(afterNumbers[afterNumbers.length - 1]);
+      description = before.trim();
+    } else if (afterNumbers.length === 2 && beforeNumbers.length > 0) {
+      // Menge Einheit EP Total (klassisches Format).
       quantity = parseSwissNumber(beforeNumbers[beforeNumbers.length - 1]);
       const lastNumIdx = before.lastIndexOf(beforeNumbers[beforeNumbers.length - 1]);
       description = before.slice(0, lastNumIdx).trim();
-    } else {
-      description = before.trim();
-    }
-
-    if (afterNumbers.length >= 2) {
-      unitPrice = parseSwissNumber(afterNumbers[afterNumbers.length - 2]);
-      totalPrice = parseSwissNumber(afterNumbers[afterNumbers.length - 1]);
-    } else if (afterNumbers.length === 1) {
       unitPrice = parseSwissNumber(afterNumbers[0]);
+      totalPrice = parseSwissNumber(afterNumbers[1]);
+    } else if (afterNumbers.length === 2) {
+      // Zwei Zahlen direkt nach der Einheit ohne Menge davor sind mehrdeutig: das kann
+      // EP+Total sein, aber genauso gut eine Bereichsangabe wie "m 3,01 bis 4,00"
+      // (Stützhöhe). Das Wort "bis" dazwischen verrät den Unterschied zuverlässig.
+      const between = after.slice(after.indexOf(afterNumbers[0]) + afterNumbers[0].length, after.indexOf(afterNumbers[1]));
+      if (/\bbis\b/i.test(between)) return null;
+      unitPrice = parseSwissNumber(afterNumbers[0]);
+      totalPrice = parseSwissNumber(afterNumbers[1]);
+      description = before.trim();
+    } else {
+      // Nur 1 (oder 0) Zahl(en) nach der Einheit ist zu unsicher (oft nur ein
+      // Mass-/Grenzwert in der Beschreibung, kein Preis) - lieber nichts erkennen.
+      return null;
     }
-  } else {
-    const numbers = rest.match(NUMBER_TOKEN) ?? [];
-    if (numbers.length >= 3) {
-      quantity = parseSwissNumber(numbers[numbers.length - 3]);
-      unitPrice = parseSwissNumber(numbers[numbers.length - 2]);
-      totalPrice = parseSwissNumber(numbers[numbers.length - 1]);
-      const cut = rest.lastIndexOf(numbers[numbers.length - 3]);
-      description = rest.slice(0, cut).trim();
-    } else if (numbers.length === 2) {
-      unitPrice = parseSwissNumber(numbers[0]);
-      totalPrice = parseSwissNumber(numbers[1]);
-      const cut = rest.lastIndexOf(numbers[0]);
-      description = rest.slice(0, cut).trim();
-    } else if (numbers.length === 1) {
-      totalPrice = parseSwissNumber(numbers[0]);
-      const cut = rest.lastIndexOf(numbers[0]);
-      description = rest.slice(0, cut).trim();
+
+    if (quantity !== null && unitPrice !== null && totalPrice === null) {
+      totalPrice = Math.round(quantity * unitPrice * 100) / 100;
     }
+    return { description: description.replace(/\s+/g, ' ').trim(), quantity, unit, unitPrice, totalPrice };
   }
 
-  if (quantity !== null && unitPrice !== null && totalPrice === null) {
-    totalPrice = Math.round(quantity * unitPrice * 100) / 100;
-  }
-
-  // Zeilen ohne jegliche Preisangabe sind meist Kapitel-/Titelzeilen, keine Positionen.
-  if (unitPrice === null && totalPrice === null) return null;
-
-  description = description.replace(/\s+/g, ' ').trim();
-
-  return {
-    id: `${idPrefix}-${index}`,
-    code,
-    description,
-    quantity,
-    unit,
-    unitPrice,
-    totalPrice,
-    page: row.page,
-    rawText: row.text,
-    autoDetected: true,
-  };
+  // Ohne erkannte Einheit keine Preiszeile annehmen: Fliesstext enthält oft zufällig
+  // 2-3 Zahlen (Querverweise wie "Zu Pos. 224.301", Bereichsangaben wie "200 bis 500"),
+  // die sonst fälschlich als Menge/Preis interpretiert würden.
+  return null;
 }
 
-const NO_DIGITS = /^[^\d]*$/;
-const MAX_CONTINUATION_LINES = 3;
+interface StackFrame {
+  x: number;
+  num: string;
+  textParts: string[];
+}
+
+function isChildOf(newX: number, newNum: string, top: StackFrame): boolean {
+  if (newX > top.x + 1) return true; // physisch weiter eingerückt -> tiefer verschachtelt
+  if (Math.abs(newX - top.x) <= 1 && newNum.length > top.num.length && newNum.startsWith(top.num)) {
+    return true; // gleiche Einrückung, aber Nummer verfeinert die vorherige (z.B. "101" -> "10101")
+  }
+  return false;
+}
 
 export async function parseOfferPdf(
   data: ArrayBuffer,
   idPrefix: string,
 ): Promise<{ rows: PositionRow[]; pageCount: number }> {
-  const { rows: textRows, pageCount } = await extractTextRows(data);
+  const { rows: allRawRows, pageCount } = await extractTextRows(data);
+
+  // Deckblatt/Anschreiben (vor dem eigentlichen NPK-Ausdruck) und die abschliessende
+  // Zusammenfassung ("Zusammenstellung: 100 Vorarbeiten 9'184.00 ...") ausklammern:
+  // Erstens enthält Fliesstext dort zu viele zufällige Zahlen für die Heuristik, und
+  // zweitens würde die Zusammenfassung dieselben Positionen nochmals (als grobe
+  // Kapitel-Summen) erzeugen und so alles duplizieren.
+  const startIdx = allRawRows.findIndex((r) => /^NPK-Bau\b/i.test(r.text) || /^NPK\b.*\(V\d{4}\)/i.test(r.text));
+  const searchFrom = startIdx >= 0 ? startIdx : 0;
+  const summaryIdx = allRawRows.findIndex(
+    (r, i) => i > searchFrom && /^Zusammenstellung:?$/i.test(r.text),
+  );
+  const rawRows = allRawRows.slice(searchFrom, summaryIdx >= 0 ? summaryIdx : undefined);
+
+  const rows = filterBoilerplate(rawRows, pageCount);
   const positions: PositionRow[] = [];
   let index = 0;
-  let lastRow: PositionRow | null = null;
-  let continuationCount = 0;
 
-  for (const row of textRows) {
-    const parsed = tryParseRow(row, idPrefix, index);
-    if (parsed) {
-      positions.push(parsed);
-      index++;
-      lastRow = parsed;
-      continuationCount = 0;
+  const stack: StackFrame[] = [];
+
+  function makePosition(page: number, rawText: string, priced: PriceInfo, leafText: string): PositionRow {
+    const code = stack.map((f) => f.num).join('.');
+    const parts = stack.flatMap((f, i) => (i === stack.length - 1 ? [...f.textParts, leafText] : f.textParts));
+    const description = parts.filter(Boolean).join(' ').replace(/\s+/g, ' ').trim();
+    index++;
+    return {
+      id: `${idPrefix}-${index}`,
+      code: code || `pos-${index}`,
+      description,
+      quantity: priced.quantity,
+      unit: priced.unit,
+      unitPrice: priced.unitPrice,
+      totalPrice: priced.totalPrice,
+      page,
+      rawText,
+      autoDetected: true,
+    };
+  }
+
+  // Regie-Positionen ("R619", "R 100", "R 101", ...) werden in diesem Format oft OHNE
+  // die sonst übliche zusätzliche Einrückungsstufe gedruckt - rein nach x-Position sähen
+  // sie wie flache Geschwister aus statt wie Titel + Unterpositionen. regieRootIndex
+  // merkt sich den Stack-Index der zuletzt geöffneten Regie-Titelzeile, solange
+  // ununterbrochen weitere "R"-Zeilen folgen, und verhindert, dass diese darüber hinaus
+  // abgebaut wird.
+  let regieRootIndex: number | null = null;
+
+  for (const row of rows) {
+    const leadMatch = row.text.match(LEADING_CODE_REGEX);
+
+    if (leadMatch) {
+      const num = leadMatch[1].trim();
+      const rest = leadMatch[2];
+      const isRegie = /^R\s?\d/.test(row.text);
+
+      if (isRegie && regieRootIndex !== null) {
+        while (stack.length > regieRootIndex + 1) stack.pop();
+      } else {
+        while (stack.length && !isChildOf(row.x, num, stack[stack.length - 1])) stack.pop();
+        regieRootIndex = isRegie ? stack.length : null;
+      }
+
+      const priced = extractPricing(rest);
+      if (priced) {
+        stack.push({ x: row.x, num, textParts: [] });
+        positions.push(makePosition(row.page, row.text, priced, priced.description));
+      } else {
+        stack.push({ x: row.x, num, textParts: [rest.replace(/\s+/g, ' ').trim()] });
+      }
       continue;
     }
 
-    // Beschreibungen, die im PDF über mehrere Zeilen umbrechen, an die letzte
-    // erkannte Position anhängen (nur reiner Fliesstext ohne Zahlen, gleiche Seite).
-    const text = row.text.trim();
-    if (
-      lastRow &&
-      lastRow.page === row.page &&
-      continuationCount < MAX_CONTINUATION_LINES &&
-      text.length >= 3 &&
-      text.length <= 150 &&
-      NO_DIGITS.test(text)
-    ) {
-      lastRow.description = `${lastRow.description} ${text}`.trim();
-      lastRow.rawText = `${lastRow.rawText} / ${text}`;
-      continuationCount++;
-    } else {
-      lastRow = null;
-      continuationCount = 0;
+    // Keine führende Nummer: entweder reine Fortsetzungszeile der Beschreibung, oder die
+    // Zeile, in der Menge/Einheit/Preis der zuletzt geöffneten Position stehen.
+    if (stack.length === 0) continue;
+    const top = stack[stack.length - 1];
+    const priced = extractPricing(row.text);
+    if (priced) {
+      positions.push(makePosition(row.page, row.text, priced, priced.description));
+    } else if (row.text.length <= 200) {
+      top.textParts.push(row.text);
     }
   }
 
