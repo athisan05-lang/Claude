@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
-import type { Offer, PositionRow, Project } from './lib/types';
+import type { Offer, PositionRow, Project, SubProject } from './lib/types';
 import { deleteProject, listProjects, saveProject } from './lib/db';
 import { parseOfferPdf } from './lib/pdfParser';
 import { reconcileGroups } from './lib/matchEngine';
+import ProjectList from './components/ProjectList';
+import SubProjectList from './components/SubProjectList';
 import UploadArea from './components/UploadArea';
 import OfferEditor from './components/OfferEditor';
 import ComparisonView from './components/ComparisonView';
@@ -11,13 +13,18 @@ function uuid(): string {
   return crypto.randomUUID();
 }
 
-function newProject(): Project {
-  return { id: uuid(), name: 'Neues Projekt', offers: [], groups: [], updatedAt: Date.now() };
+function newProject(name: string): Project {
+  return { id: uuid(), name, subProjects: [], updatedAt: Date.now() };
+}
+
+function newSubProject(name: string): SubProject {
+  return { id: uuid(), name, offers: [], groups: [], updatedAt: Date.now() };
 }
 
 export default function App() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [project, setProject] = useState<Project | null>(null);
+  const [subProjectId, setSubProjectId] = useState<string | null>(null);
   const [tab, setTab] = useState<'offerten' | 'vergleich'>('offerten');
   const [busy, setBusy] = useState(false);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -25,6 +32,8 @@ export default function App() {
   useEffect(() => {
     listProjects().then(setProjects);
   }, []);
+
+  const subProject = project?.subProjects.find((sp) => sp.id === subProjectId) ?? null;
 
   function commit(next: Project) {
     next.updatedAt = Date.now();
@@ -35,36 +44,60 @@ export default function App() {
     }, 400);
   }
 
-  function withReconciledGroups(next: Project): Project {
-    return { ...next, groups: reconcileGroups(next.offers, next.groups) };
+  function withReconciledGroups(sp: SubProject): SubProject {
+    return { ...sp, groups: reconcileGroups(sp.offers, sp.groups) };
+  }
+
+  function updateSubProject(id: string, updater: (sp: SubProject) => SubProject) {
+    if (!project) return;
+    const subProjects = project.subProjects.map((sp) => (sp.id === id ? { ...updater(sp), updatedAt: Date.now() } : sp));
+    commit({ ...project, subProjects });
   }
 
   async function handleOpenProject(p: Project) {
     setProject(p);
-    setTab('offerten');
+    setSubProjectId(null);
   }
 
   async function handleCreateProject() {
-    const p = newProject();
+    const p = newProject('Neues Projekt');
     await saveProject(p);
     setProjects(await listProjects());
     setProject(p);
-    setTab('offerten');
+    setSubProjectId(null);
   }
 
   async function handleDeleteProject(id: string) {
-    if (!confirm('Dieses Projekt inkl. aller Offerten wirklich löschen?')) return;
+    if (!confirm('Dieses Projekt inkl. aller Bereiche und Offerten wirklich löschen?')) return;
     await deleteProject(id);
     setProjects(await listProjects());
   }
 
-  function backToList() {
+  function backToProjectList() {
     setProject(null);
+    setSubProjectId(null);
     listProjects().then(setProjects);
   }
 
-  async function handleFiles(files: File[]) {
+  function backToSubProjectList() {
+    setSubProjectId(null);
+  }
+
+  function handleCreateSubProject(name: string) {
     if (!project) return;
+    const sp = newSubProject(name);
+    commit({ ...project, subProjects: [...project.subProjects, sp] });
+    setSubProjectId(sp.id);
+    setTab('offerten');
+  }
+
+  function handleDeleteSubProject(id: string) {
+    if (!project) return;
+    commit({ ...project, subProjects: project.subProjects.filter((sp) => sp.id !== id) });
+  }
+
+  async function handleFiles(files: File[]) {
+    if (!subProject) return;
     setBusy(true);
     try {
       const newOffers: Offer[] = [];
@@ -82,104 +115,99 @@ export default function App() {
           createdAt: Date.now(),
         });
       }
-      const next = withReconciledGroups({ ...project, offers: [...project.offers, ...newOffers] });
-      commit(next);
+      updateSubProject(subProject.id, (sp) => withReconciledGroups({ ...sp, offers: [...sp.offers, ...newOffers] }));
     } finally {
       setBusy(false);
     }
   }
 
   function updateOfferRows(offerId: string, updater: (rows: PositionRow[]) => PositionRow[]) {
-    if (!project) return;
-    const offers = project.offers.map((o) => (o.id === offerId ? { ...o, rows: updater(o.rows) } : o));
-    commit(withReconciledGroups({ ...project, offers }));
+    if (!subProject) return;
+    updateSubProject(subProject.id, (sp) =>
+      withReconciledGroups({ ...sp, offers: sp.offers.map((o) => (o.id === offerId ? { ...o, rows: updater(o.rows) } : o)) }),
+    );
   }
 
   function renameOffer(offerId: string, name: string) {
-    if (!project) return;
-    const offers = project.offers.map((o) => (o.id === offerId ? { ...o, name } : o));
-    commit({ ...project, offers });
+    if (!subProject) return;
+    updateSubProject(subProject.id, (sp) => ({
+      ...sp,
+      offers: sp.offers.map((o) => (o.id === offerId ? { ...o, name } : o)),
+    }));
   }
 
   function deleteOffer(offerId: string) {
-    if (!project) return;
-    const offers = project.offers.filter((o) => o.id !== offerId);
-    commit(withReconciledGroups({ ...project, offers }));
+    if (!subProject) return;
+    updateSubProject(subProject.id, (sp) => withReconciledGroups({ ...sp, offers: sp.offers.filter((o) => o.id !== offerId) }));
   }
 
   function reassignRow(groupId: string, offerId: string, rowId: string | null) {
-    if (!project) return;
-    const groups = project.groups.map((g) => {
-      const assignments = { ...g.assignments };
-      if (g.id !== groupId && assignments[offerId] === rowId) {
-        delete assignments[offerId];
-      } else if (g.id === groupId) {
-        if (rowId) assignments[offerId] = rowId;
-        else delete assignments[offerId];
-      }
-      return { ...g, assignments };
+    if (!subProject) return;
+    updateSubProject(subProject.id, (sp) => {
+      const groups = sp.groups.map((g) => {
+        const assignments = { ...g.assignments };
+        if (g.id !== groupId && assignments[offerId] === rowId) {
+          delete assignments[offerId];
+        } else if (g.id === groupId) {
+          if (rowId) assignments[offerId] = rowId;
+          else delete assignments[offerId];
+        }
+        return { ...g, assignments };
+      });
+      const cleaned = groups.filter((g) => Object.keys(g.assignments).length > 0);
+      // Zeile, die vorher in der Zielgruppe stand, ist jetzt evtl. verwaist -> neu einsortieren,
+      // statt sie stillschweigend aus dem Vergleich verschwinden zu lassen.
+      return withReconciledGroups({ ...sp, groups: cleaned });
     });
-    const cleaned = groups.filter((g) => Object.keys(g.assignments).length > 0);
-    // Zeile, die vorher in der Zielgruppe stand, ist jetzt evtl. verwaist -> neu einsortieren,
-    // statt sie stillschweigend aus dem Vergleich verschwinden zu lassen.
-    commit(withReconciledGroups({ ...project, groups: cleaned }));
   }
 
   function updateGroupMeta(groupId: string, patch: Partial<{ code: string; description: string }>) {
-    if (!project) return;
-    const groups = project.groups.map((g) => (g.id === groupId ? { ...g, ...patch } : g));
-    commit({ ...project, groups });
+    if (!subProject) return;
+    updateSubProject(subProject.id, (sp) => ({
+      ...sp,
+      groups: sp.groups.map((g) => (g.id === groupId ? { ...g, ...patch } : g)),
+    }));
   }
 
   if (!project) {
     return (
-      <div className="mx-auto max-w-3xl px-4 py-10">
-        <h1 className="mb-1 text-2xl font-semibold text-neutral-900 dark:text-neutral-50">Offertenvergleich</h1>
-        <p className="mb-6 text-sm text-neutral-500">
-          Vergleiche Subunternehmer- und Lieferanten-Offerten Position für Position nach NPK-Nummer. Alles läuft
-          lokal in deinem Browser, es wird nichts hochgeladen.
-        </p>
-        <button
-          className="mb-6 rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
-          onClick={handleCreateProject}
-        >
-          + Neues Vergleichsprojekt
-        </button>
+      <ProjectList
+        projects={projects}
+        onOpen={handleOpenProject}
+        onCreate={handleCreateProject}
+        onDelete={handleDeleteProject}
+      />
+    );
+  }
 
-        {projects.length > 0 && (
-          <div className="divide-y divide-neutral-200 rounded-lg border border-neutral-200 dark:divide-neutral-800 dark:border-neutral-700">
-            {projects.map((p) => (
-              <div key={p.id} className="flex items-center justify-between px-4 py-3">
-                <button className="text-left" onClick={() => handleOpenProject(p)}>
-                  <div className="font-medium text-neutral-800 dark:text-neutral-100">{p.name}</div>
-                  <div className="text-xs text-neutral-500">
-                    {p.offers.length} Offerte(n) · zuletzt geändert {new Date(p.updatedAt).toLocaleString('de-CH')}
-                  </div>
-                </button>
-                <button
-                  className="rounded border border-red-300 px-2 py-1 text-xs text-red-600 hover:bg-red-50 dark:border-red-800 dark:hover:bg-red-950/40"
-                  onClick={() => handleDeleteProject(p.id)}
-                >
-                  Löschen
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
+  if (!subProject) {
+    return (
+      <SubProjectList
+        project={project}
+        onBack={backToProjectList}
+        onRenameProject={(name) => commit({ ...project, name })}
+        onOpenSubProject={(id) => {
+          setSubProjectId(id);
+          setTab('offerten');
+        }}
+        onCreateSubProject={handleCreateSubProject}
+        onDeleteSubProject={handleDeleteSubProject}
+      />
     );
   }
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-6">
-      <div className="mb-4 flex items-center gap-3">
-        <button className="text-sm text-blue-600 hover:underline" onClick={backToList}>
-          ← Projekte
+      <div className="mb-1 flex items-center gap-3">
+        <button className="text-sm text-blue-600 hover:underline" onClick={backToSubProjectList}>
+          ← {project.name}
         </button>
+      </div>
+      <div className="mb-4 flex items-center gap-3">
         <input
           className="min-w-0 flex-1 rounded border border-transparent bg-transparent px-1 py-0.5 text-xl font-semibold text-neutral-900 hover:border-neutral-300 focus:border-blue-400 focus:outline-none dark:text-neutral-50"
-          value={project.name}
-          onChange={(e) => commit({ ...project, name: e.target.value })}
+          value={subProject.name}
+          onChange={(e) => updateSubProject(subProject.id, (sp) => ({ ...sp, name: e.target.value }))}
         />
       </div>
 
@@ -192,7 +220,7 @@ export default function App() {
           }`}
           onClick={() => setTab('offerten')}
         >
-          Offerten ({project.offers.length})
+          Offerten ({subProject.offers.length})
         </button>
         <button
           className={`px-3 py-2 text-sm font-medium ${
@@ -209,7 +237,7 @@ export default function App() {
       {tab === 'offerten' && (
         <div className="space-y-6">
           <UploadArea onFiles={handleFiles} busy={busy} />
-          {project.offers.map((offer) => (
+          {subProject.offers.map((offer) => (
             <OfferEditor
               key={offer.id}
               offer={offer}
@@ -243,9 +271,9 @@ export default function App() {
 
       {tab === 'vergleich' && (
         <ComparisonView
-          projectName={project.name}
-          offers={project.offers}
-          groups={project.groups}
+          projectName={`${project.name} - ${subProject.name}`}
+          offers={subProject.offers}
+          groups={subProject.groups}
           onReassign={reassignRow}
           onUpdateGroup={updateGroupMeta}
         />

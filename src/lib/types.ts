@@ -36,10 +36,18 @@ export interface MatchGroup {
   assignments: Record<string, string>;
 }
 
-export interface Project {
+/** Ein Bereich/Gewerk innerhalb eines Hauptprojekts, z.B. "132 Bohren und Trennen". */
+export interface SubProject {
   id: string;
   name: string;
   offers: Offer[];
   groups: MatchGroup[];
+  updatedAt: number;
+}
+
+export interface Project {
+  id: string;
+  name: string;
+  subProjects: SubProject[];
   updatedAt: number;
 }
