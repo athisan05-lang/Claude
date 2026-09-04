@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { pdfjsLib } from '../lib/pdfjsSetup';
+import PdfPageCanvas from './PdfPageCanvas';
 
 interface Props {
   fileName: string;
@@ -10,10 +11,8 @@ interface Props {
 }
 
 export default function PdfViewerModal({ fileName, fileData, page, rawText, onClose }: Props) {
-  const canvasRef = useRef<HTMLCanvasElement>(null);
   const [currentPage, setCurrentPage] = useState(page);
   const [pageCount, setPageCount] = useState<number | null>(null);
-  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     setCurrentPage(page);
@@ -21,27 +20,13 @@ export default function PdfViewerModal({ fileName, fileData, page, rawText, onCl
 
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
-    (async () => {
-      const doc = await pdfjsLib.getDocument({ data: fileData.slice(0) }).promise;
-      if (cancelled) return;
-      setPageCount(doc.numPages);
-      const pdfPage = await doc.getPage(Math.min(Math.max(currentPage, 1), doc.numPages));
-      if (cancelled) return;
-      const viewport = pdfPage.getViewport({ scale: 1.5 });
-      const canvas = canvasRef.current;
-      if (!canvas) return;
-      const ctx = canvas.getContext('2d');
-      if (!ctx) return;
-      canvas.width = viewport.width;
-      canvas.height = viewport.height;
-      await pdfPage.render({ canvasContext: ctx, viewport }).promise;
-      if (!cancelled) setLoading(false);
-    })();
+    pdfjsLib.getDocument({ data: fileData.slice(0) }).promise.then((doc) => {
+      if (!cancelled) setPageCount(doc.numPages);
+    });
     return () => {
       cancelled = true;
     };
-  }, [fileData, currentPage]);
+  }, [fileData]);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
@@ -81,8 +66,7 @@ export default function PdfViewerModal({ fileName, fileData, page, rawText, onCl
           </div>
         </div>
         <div className="flex-1 overflow-auto bg-neutral-100 p-4 dark:bg-neutral-950">
-          {loading && <div className="text-sm text-neutral-500">PDF wird geladen…</div>}
-          <canvas ref={canvasRef} className="mx-auto shadow" />
+          <PdfPageCanvas fileData={fileData} page={currentPage} scale={1.5} />
         </div>
         {rawText && (
           <div className="border-t border-neutral-200 bg-neutral-50 px-4 py-2 text-xs text-neutral-600 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-300">

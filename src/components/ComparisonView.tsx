@@ -5,6 +5,7 @@ import { formatCHF } from '../lib/numberFormat';
 import { exportComparisonToExcel } from '../lib/excelExport';
 import { minPairwiseSimilarity } from '../lib/similarity';
 import PdfViewerModal from './PdfViewerModal';
+import ComparePdfModal from './ComparePdfModal';
 
 interface Props {
   projectName: string;
@@ -43,6 +44,7 @@ function quantitiesMismatch(cells: GroupComputed['cells']): boolean {
 
 export default function ComparisonView({ projectName, offers, groups, onReassign, onUpdateGroup }: Props) {
   const [viewer, setViewer] = useState<{ offer: Offer; page: number; rawText: string } | null>(null);
+  const [compareGroup, setCompareGroup] = useState<GroupComputed | null>(null);
   const [search, setSearch] = useState('');
   const [onlyDifferences, setOnlyDifferences] = useState(false);
   const [sortMode, setSortMode] = useState<SortMode>('code');
@@ -198,7 +200,10 @@ export default function ComparisonView({ projectName, offers, groups, onReassign
             </tr>
           </thead>
           <tbody>
-            {visibleRows.map(({ group, cells, min, descriptionMismatch, quantityMismatch }) => (
+            {visibleRows.map((rowComputed) => {
+              const { group, cells, min, descriptionMismatch, quantityMismatch } = rowComputed;
+              const pdfEntryCount = cells.filter((c) => c.row).length;
+              return (
               <tr
                 key={group.id}
                 className="border-b border-neutral-100 align-top transition-colors hover:bg-neutral-50 dark:border-neutral-800 dark:hover:bg-neutral-800/40"
@@ -220,6 +225,15 @@ export default function ComparisonView({ projectName, offers, groups, onReassign
                       >
                         📏
                       </span>
+                    )}
+                    {pdfEntryCount >= 2 && (
+                      <button
+                        title="Original-PDFs aller Offerten nebeneinander vergleichen"
+                        className="rounded px-1 text-sm text-indigo-500 hover:bg-indigo-50 hover:text-indigo-700 dark:hover:bg-indigo-950/40"
+                        onClick={() => setCompareGroup(rowComputed)}
+                      >
+                        ⇔
+                      </button>
                     )}
                     <input
                       className="w-24 rounded border border-transparent bg-transparent px-1 py-0.5 hover:border-neutral-300 focus:border-indigo-400 focus:outline-none"
@@ -279,7 +293,8 @@ export default function ComparisonView({ projectName, offers, groups, onReassign
                   );
                 })}
               </tr>
-            ))}
+              );
+            })}
             {visibleRows.length === 0 && (
               <tr>
                 <td colSpan={2 + offers.length} className="px-2 py-8 text-center text-sm text-neutral-500">
@@ -318,6 +333,22 @@ export default function ComparisonView({ projectName, offers, groups, onReassign
           page={viewer.page}
           rawText={viewer.rawText}
           onClose={() => setViewer(null)}
+        />
+      )}
+
+      {compareGroup && (
+        <ComparePdfModal
+          groupLabel={`${compareGroup.group.code} – ${compareGroup.group.description}`}
+          entries={compareGroup.cells
+            .filter((c): c is { offer: Offer; row: NonNullable<(typeof c)['row']> } => !!c.row)
+            .map((c) => ({
+              offer: c.offer,
+              page: c.row.page,
+              quantity: c.row.quantity,
+              unit: c.row.unit,
+              totalPrice: c.row.totalPrice,
+            }))}
+          onClose={() => setCompareGroup(null)}
         />
       )}
     </div>

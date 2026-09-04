@@ -60,14 +60,13 @@ export async function terminateOcrWorker(): Promise<void> {
 const MAX_RENDER_DIMENSION = 2200;
 
 async function renderPageToCanvas(page: PdfPage) {
-  // Auflösung ist ein Kompromiss zwischen Erkennungsqualität und Geschwindigkeit -
-  // scale 2 statt 3 spart ca. die Hälfte der Rechenzeit pro Seite, bei kaum schlechterer
-  // Texterkennung (Zahlenspalten waren bei feiner gescannten Vorlagen auch mit scale 3
-  // schon an der Grenze der Lesbarkeit). Zusätzlich nach oben gedeckelt (siehe
-  // MAX_RENDER_DIMENSION), falls die Seite selbst schon sehr hochauflösend ist.
+  // scale 3 für möglichst gute Erkennung (vor allem der Zahlenspalten). Der worst case
+  // (sehr hochauflösende Handy-Scans) ist jetzt durch MAX_RENDER_DIMENSION gedeckelt und
+  // durch den Timeout in ocrPages abgesichert, daher kann die Auflösung für normal grosse
+  // Seiten wieder hochgesetzt werden, ohne das Hänge-Risiko von vorher zurückzubringen.
   const naturalViewport = page.getViewport({ scale: 1 });
   const longestEdge = Math.max(naturalViewport.width, naturalViewport.height);
-  const scale = Math.min(2, MAX_RENDER_DIMENSION / longestEdge);
+  const scale = Math.min(3, MAX_RENDER_DIMENSION / longestEdge);
   const viewport = page.getViewport({ scale });
   const canvas = document.createElement('canvas');
   canvas.width = viewport.width;
