@@ -1,6 +1,6 @@
 import { pdfjsLib } from './pdfjsSetup';
 import { parseSwissNumber } from './numberFormat';
-import { needsOcr, ocrPage, type OcrProgress } from './ocr';
+import { needsOcr, ocrPages, type OcrProgress } from './ocr';
 import type { PositionRow } from './types';
 
 const UNIT_WORDS = [
@@ -53,8 +53,11 @@ async function extractTextRows(
   // .slice(0) kopiert den Buffer: pdf.js "transferred" das Original sonst an den Worker,
   // wodurch es beim Original-Offer-Objekt nicht mehr lesbar wäre.
   const doc = await pdfjsLib.getDocument({ data: data.slice(0) }).promise;
-  const rows: TextRow[] = [];
-  let ocrUsed = false;
+  // Pro Seite gesammelt statt direkt in eine flache Liste geschrieben, damit gescannte
+  // Seiten (OCR) unten gebündelt und parallel verarbeitet werden können, ohne die
+  // Seitenreihenfolge im Endergebnis durcheinanderzubringen.
+  const pageRows: TextRow[][] = new Array(doc.numPages + 1);
+  const ocrPageNums: number[] = [];
 
   for (let pageNum = 1; pageNum <= doc.numPages; pageNum++) {
     const page = await doc.getPage(pageNum);
@@ -69,12 +72,9 @@ async function extractTextRows(
     }
 
     if (needsOcr(items.length)) {
-      // Keine Textebene -> die Seite ist ein eingescanntes Bild. Per Texterkennung (OCR)
-      // lesen; das dauert deutlich länger als normales Text-PDFs auslesen.
-      ocrUsed = true;
-      onProgress?.({ page: pageNum, pageCount: doc.numPages, status: 'Texterkennung (OCR) läuft', progress: 0 });
-      const ocrRows = await ocrPage(doc, pageNum, doc.numPages, onProgress);
-      rows.push(...ocrRows);
+      // Keine Textebene -> die Seite ist ein eingescanntes Bild. Wird weiter unten
+      // gebündelt per OCR gelesen (parallel über mehrere Seiten hinweg statt einzeln).
+      ocrPageNums.push(pageNum);
       continue;
     }
 
@@ -91,6 +91,7 @@ async function extractTextRows(
       }
     }
 
+    const rowsForPage: TextRow[] = [];
     for (const group of lineGroups) {
       group.sort((a, b) => a.x - b.x);
       let text = '';
@@ -102,9 +103,20 @@ async function extractTextRows(
         prevEndX = item.x;
       }
       text = text.replace(/\s+/g, ' ').trim();
-      if (text) rows.push({ page: pageNum, y: group[0].y, x: group[0].x, text });
+      if (text) rowsForPage.push({ page: pageNum, y: group[0].y, x: group[0].x, text });
     }
+    pageRows[pageNum] = rowsForPage;
   }
+
+  const ocrUsed = ocrPageNums.length > 0;
+  if (ocrPageNums.length > 0) {
+    onProgress?.({ page: ocrPageNums[0], pageCount: doc.numPages, status: 'Texterkennung (OCR) läuft', progress: 0 });
+    const ocrResults = await ocrPages(doc, ocrPageNums, doc.numPages, onProgress);
+    for (const pageNum of ocrPageNums) pageRows[pageNum] = ocrResults.get(pageNum) ?? [];
+  }
+
+  const rows: TextRow[] = [];
+  for (let pageNum = 1; pageNum <= doc.numPages; pageNum++) rows.push(...(pageRows[pageNum] ?? []));
 
   return { rows, pageCount: doc.numPages, ocrUsed };
 }

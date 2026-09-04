@@ -1,4 +1,4 @@
-import { createWorker, type Worker } from 'tesseract.js';
+import { createWorker, PSM, type Worker } from 'tesseract.js';
 import { pdfjsLib } from './pdfjsSetup';
 
 export interface OcrRow {
@@ -10,36 +10,51 @@ export interface OcrRow {
 
 export type OcrProgress = (info: { page: number; pageCount: number; status: string; progress: number }) => void;
 
-let sharedWorker: Promise<Worker> | null = null;
+type PdfDocument = Awaited<ReturnType<typeof pdfjsLib.getDocument>['promise']>;
+type PdfPage = Awaited<ReturnType<PdfDocument['getPage']>>;
 
-function getWorker(): Promise<Worker> {
-  if (!sharedWorker) {
-    // Worker, WASM-Engine und deutsche Sprachdaten liegen als statische Dateien im eigenen
-    // public/-Ordner (aus den npm-Paketen tesseract.js-core und @tesseract.js-data/deu
-    // kopiert), statt sie von einem externen CDN nachzuladen - läuft dadurch auch ohne
-    // Zugriff auf Drittanbieter-CDNs und bleibt näher am "alles lokal"-Prinzip der App.
-    // BASE_URL berücksichtigt einen evtl. Unterpfad (z.B. "/Claude/" auf GitHub Pages).
-    const base = import.meta.env.BASE_URL;
-    sharedWorker = createWorker('deu', 1, {
-      workerPath: `${base}tesseract/worker.min.js`,
-      corePath: `${base}tesseract/tesseract-core-simd.wasm.js`,
-      langPath: `${base}tesseract`,
-    });
-  }
-  return sharedWorker;
+// Mehrere Tesseract-Worker parallel laufen lassen, statt Seite für Seite nacheinander -
+// das ist der grösste Hebel gegen lange Wartezeiten bei mehrseitigen Scans. 2 ist ein
+// vorsichtiger Wert (jeder Worker lädt eigenes WASM + Sprachdaten, kostet also RAM).
+const MAX_WORKERS = 2;
+const pool: Promise<Worker>[] = [];
+
+async function createConfiguredWorker(): Promise<Worker> {
+  // Worker, WASM-Engine und deutsche Sprachdaten liegen als statische Dateien im eigenen
+  // public/-Ordner (aus den npm-Paketen tesseract.js-core und @tesseract.js-data/deu
+  // kopiert), statt sie von einem externen CDN nachzuladen - läuft dadurch auch ohne
+  // Zugriff auf Drittanbieter-CDNs und bleibt näher am "alles lokal"-Prinzip der App.
+  // BASE_URL berücksichtigt einen evtl. Unterpfad (z.B. "/Claude/" auf GitHub Pages).
+  const base = import.meta.env.BASE_URL;
+  const worker = await createWorker('deu', 1, {
+    workerPath: `${base}tesseract/worker.min.js`,
+    corePath: `${base}tesseract/tesseract-core-simd.wasm.js`,
+    langPath: `${base}tesseract`,
+  });
+  // NPK-Ausdrucke sind pro Seite eine einzelne Spalte (Titel + Tabellenzeilen) - die
+  // aufwendige automatische Layout-/Spaltenerkennung (Standardmodus) wird nicht
+  // gebraucht und nur explizit ausgeschaltet, was spürbar Zeit spart.
+  await worker.setParameters({ tessedit_pageseg_mode: PSM.SINGLE_COLUMN });
+  return worker;
 }
 
-/** Beendet den (bei Bedarf einmalig erzeugten) OCR-Worker und gibt dessen Ressourcen frei. */
+function ensureWorkers(count: number): Promise<Worker>[] {
+  while (pool.length < count) pool.push(createConfiguredWorker());
+  return pool.slice(0, count);
+}
+
+/** Beendet alle (bei Bedarf einmalig erzeugten) OCR-Worker und gibt deren Ressourcen frei. */
 export async function terminateOcrWorker(): Promise<void> {
-  if (!sharedWorker) return;
-  const worker = await sharedWorker;
-  sharedWorker = null;
-  await worker.terminate();
+  const existing = pool.splice(0, pool.length);
+  await Promise.all(existing.map(async (p) => (await p).terminate()));
 }
 
-async function renderPageToCanvas(page: Awaited<ReturnType<Awaited<ReturnType<typeof pdfjsLib.getDocument>['promise']>['getPage']>>) {
-  // Höhere Auflösung = bessere Erkennungsrate bei kleiner Schrift in Tabellen.
-  const viewport = page.getViewport({ scale: 3 });
+async function renderPageToCanvas(page: PdfPage) {
+  // Auflösung ist ein Kompromiss zwischen Erkennungsqualität und Geschwindigkeit -
+  // scale 2 statt 3 spart ca. die Hälfte der Rechenzeit pro Seite, bei kaum schlechterer
+  // Texterkennung (Zahlenspalten waren bei feiner gescannten Vorlagen auch mit scale 3
+  // schon an der Grenze der Lesbarkeit).
+  const viewport = page.getViewport({ scale: 2 });
   const canvas = document.createElement('canvas');
   canvas.width = viewport.width;
   canvas.height = viewport.height;
@@ -54,29 +69,7 @@ export function needsOcr(itemCount: number): boolean {
   return itemCount === 0;
 }
 
-/**
- * Erkennt den Text einer gescannten (textlosen) PDF-Seite per OCR und liefert ihn in
- * derselben Zeilen-Form wie die reguläre Textextraktion (Seite/x/y/Text), damit er
- * anschliessend von derselben Positions-Erkennung weiterverarbeitet werden kann.
- */
-export async function ocrPage(
-  doc: Awaited<ReturnType<typeof pdfjsLib.getDocument>['promise']>,
-  pageNum: number,
-  pageCount: number,
-  onProgress?: OcrProgress,
-): Promise<OcrRow[]> {
-  const page = await doc.getPage(pageNum);
-  const canvas = await renderPageToCanvas(page);
-  const worker = await getWorker();
-
-  const { data } = await worker.recognize(
-    canvas,
-    {},
-    { blocks: true, text: false, hocr: false, tsv: false },
-  );
-
-  onProgress?.({ page: pageNum, pageCount, status: 'erkannt', progress: 1 });
-
+function toRows(data: Awaited<ReturnType<Worker['recognize']>>['data'], pageNum: number): OcrRow[] {
   const rows: OcrRow[] = [];
   for (const block of data.blocks ?? []) {
     for (const paragraph of block.paragraphs) {
@@ -90,4 +83,38 @@ export async function ocrPage(
   // Bild-Koordinaten: y wächst nach unten -> von oben nach unten sortieren.
   rows.sort((a, b) => a.y - b.y || a.x - b.x);
   return rows;
+}
+
+/**
+ * Erkennt den Text mehrerer gescannter (textloser) PDF-Seiten per OCR, verteilt auf
+ * einen kleinen Pool paralleler Worker statt sie nacheinander abzuarbeiten. Liefert die
+ * Zeilen je Seite in derselben Form wie die reguläre Textextraktion (Seite/x/y/Text).
+ */
+export async function ocrPages(
+  doc: PdfDocument,
+  pageNumbers: number[],
+  pageCount: number,
+  onProgress?: OcrProgress,
+): Promise<Map<number, OcrRow[]>> {
+  const workers = ensureWorkers(Math.min(MAX_WORKERS, pageNumbers.length));
+  const queue = [...pageNumbers];
+  const results = new Map<number, OcrRow[]>();
+  let done = 0;
+
+  async function run(workerPromise: Promise<Worker>) {
+    const worker = await workerPromise;
+    for (;;) {
+      const pageNum = queue.shift();
+      if (pageNum === undefined) return;
+      const page = await doc.getPage(pageNum);
+      const canvas = await renderPageToCanvas(page);
+      const { data } = await worker.recognize(canvas, {}, { blocks: true, text: false, hocr: false, tsv: false });
+      results.set(pageNum, toRows(data, pageNum));
+      done++;
+      onProgress?.({ page: pageNum, pageCount, status: 'Texterkennung (OCR) läuft', progress: done / pageNumbers.length });
+    }
+  }
+
+  await Promise.all(workers.map(run));
+  return results;
 }
