@@ -4,9 +4,11 @@ interface Props {
   onFiles: (files: File[]) => void;
   busy: boolean;
   progressText?: string;
+  /** Fortschritt 0..1, nur relevant während OCR (Text-PDFs sind zu schnell, um ihn sinnvoll anzuzeigen). */
+  progress?: number;
 }
 
-export default function UploadArea({ onFiles, busy, progressText }: Props) {
+export default function UploadArea({ onFiles, busy, progressText, progress }: Props) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [dragOver, setDragOver] = useState(false);
 
@@ -46,7 +48,19 @@ export default function UploadArea({ onFiles, busy, progressText }: Props) {
       >
         {busy ? 'Wird verarbeitet…' : 'PDFs auswählen'}
       </button>
-      {busy && progressText && <p className="mt-2 text-xs text-neutral-500">{progressText}</p>}
+      {busy && progressText && (
+        <div className="mt-3 w-full max-w-xs">
+          {!!progress && (
+            <div className="mb-1.5 h-1.5 w-full overflow-hidden rounded-full bg-neutral-200 dark:bg-neutral-700">
+              <div
+                className="h-full rounded-full bg-gradient-to-r from-indigo-500 to-indigo-400 transition-[width] duration-300"
+                style={{ width: `${Math.max(4, Math.round(progress * 100))}%` }}
+              />
+            </div>
+          )}
+          <p className="text-xs text-neutral-500">{progressText}</p>
+        </div>
+      )}
       <input
         ref={inputRef}
         type="file"

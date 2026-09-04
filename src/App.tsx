@@ -28,6 +28,7 @@ export default function App() {
   const [tab, setTab] = useState<'offerten' | 'vergleich'>('offerten');
   const [busy, setBusy] = useState(false);
   const [progressText, setProgressText] = useState('');
+  const [progressFraction, setProgressFraction] = useState(0);
   const [uploadError, setUploadError] = useState('');
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -102,6 +103,7 @@ export default function App() {
     if (!subProject) return;
     setBusy(true);
     setProgressText('');
+    setProgressFraction(0);
     setUploadError('');
     const failed: string[] = [];
     try {
@@ -110,9 +112,11 @@ export default function App() {
         try {
           const buf = await file.arrayBuffer();
           const offerId = uuid();
-          const { rows, pageCount, ocrUsed } = await parseOfferPdf(buf, offerId, (p) =>
-            setProgressText(`${file.name}: Seite ${p.page}/${p.pageCount} per OCR lesen…`),
-          );
+          const { rows, pageCount, ocrUsed } = await parseOfferPdf(buf, offerId, (p) => {
+            const percent = Math.round(p.progress * 100);
+            setProgressText(`${file.name}: Texterkennung (OCR) – Seite ${p.page}/${p.pageCount} (${percent}%)`);
+            setProgressFraction(p.progress);
+          });
           newOffers.push({
             id: offerId,
             name: file.name.replace(/\.pdf$/i, ''),
@@ -139,6 +143,7 @@ export default function App() {
     } finally {
       setBusy(false);
       setProgressText('');
+      setProgressFraction(0);
     }
   }
 
@@ -261,7 +266,7 @@ export default function App() {
       <div className="mx-auto max-w-6xl px-4 py-6">
       {tab === 'offerten' && (
         <div className="space-y-6">
-          <UploadArea onFiles={handleFiles} busy={busy} progressText={progressText} />
+          <UploadArea onFiles={handleFiles} busy={busy} progressText={progressText} progress={progressFraction} />
           {uploadError && (
             <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300">
               {uploadError}

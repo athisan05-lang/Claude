@@ -14,9 +14,11 @@ type PdfDocument = Awaited<ReturnType<typeof pdfjsLib.getDocument>['promise']>;
 type PdfPage = Awaited<ReturnType<PdfDocument['getPage']>>;
 
 // Mehrere Tesseract-Worker parallel laufen lassen, statt Seite für Seite nacheinander -
-// das ist der grösste Hebel gegen lange Wartezeiten bei mehrseitigen Scans. 2 ist ein
-// vorsichtiger Wert (jeder Worker lädt eigenes WASM + Sprachdaten, kostet also RAM).
-const MAX_WORKERS = 2;
+// das ist der grösste Hebel gegen lange Wartezeiten bei mehrseitigen Scans. Richtet sich
+// nach den verfügbaren CPU-Kernen (jeder Worker lädt eigenes WASM + Sprachdaten, kostet
+// also RAM), zwischen 2 und 4, damit auch mehrseitige Dokumente (10+ Seiten) nicht
+// gefühlt "einfrieren".
+const MAX_WORKERS = Math.max(2, Math.min(navigator.hardwareConcurrency || 4, 4));
 const pool: Promise<Worker>[] = [];
 
 async function createConfiguredWorker(): Promise<Worker> {
