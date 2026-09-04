@@ -14,6 +14,36 @@ function clearUrlHash() {
   window.history.replaceState(null, '', window.location.pathname + window.location.search);
 }
 
+function AuthCard({ title, subtitle, children }: { title: string; subtitle: string; children: ReactNode }) {
+  return (
+    <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-neutral-50 px-4 dark:bg-neutral-950">
+      <div className="pointer-events-none absolute -top-40 left-1/2 h-80 w-[36rem] -translate-x-1/2 rounded-full bg-indigo-400/20 blur-3xl dark:bg-indigo-500/10" />
+      <div className="relative w-full max-w-sm">
+        <div className="mb-6 flex flex-col items-center gap-3">
+          <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-500 to-indigo-700 text-xl font-bold text-white shadow-lg shadow-indigo-600/20">
+            O
+          </div>
+          <div className="text-center">
+            <h1 className="text-lg font-bold text-neutral-900 dark:text-neutral-50">{title}</h1>
+            <p className="mt-0.5 text-sm text-neutral-500">{subtitle}</p>
+          </div>
+        </div>
+        <div className="rounded-2xl border border-neutral-200 bg-white p-6 shadow-xl shadow-neutral-900/5 dark:border-neutral-800 dark:bg-neutral-900">
+          {children}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function fieldClass() {
+  return 'w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm transition focus:border-indigo-400 focus:outline-none focus:ring-4 focus:ring-indigo-500/10 dark:border-neutral-700 dark:bg-neutral-950';
+}
+
+function primaryButtonClass() {
+  return 'w-full rounded-lg bg-gradient-to-b from-indigo-500 to-indigo-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm shadow-indigo-600/20 transition hover:from-indigo-600 hover:to-indigo-700 disabled:opacity-60';
+}
+
 function LoginForm() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -45,14 +75,8 @@ function LoginForm() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-neutral-50 px-4 dark:bg-neutral-950">
-      <form
-        onSubmit={handleSubmit}
-        className="w-full max-w-sm rounded-xl border border-neutral-200 bg-white p-6 shadow-sm dark:border-neutral-700 dark:bg-neutral-900"
-      >
-        <h1 className="mb-1 text-xl font-bold text-neutral-900 dark:text-neutral-50">Offertenvergleich</h1>
-        <p className="mb-5 text-sm text-neutral-500">Bitte anmelden, um fortzufahren.</p>
-
+    <AuthCard title="Offertenvergleich" subtitle="Bitte anmelden, um fortzufahren">
+      <form onSubmit={handleSubmit}>
         <label className="mb-3 block text-sm">
           <span className="mb-1 block font-medium text-neutral-700 dark:text-neutral-300">E-Mail</span>
           <input
@@ -61,7 +85,7 @@ function LoginForm() {
             autoComplete="email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm focus:border-blue-400 focus:outline-none dark:border-neutral-700 dark:bg-neutral-900"
+            className={fieldClass()}
           />
         </label>
 
@@ -73,14 +97,14 @@ function LoginForm() {
             autoComplete="current-password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm focus:border-blue-400 focus:outline-none dark:border-neutral-700 dark:bg-neutral-900"
+            className={fieldClass()}
           />
         </label>
 
         <button
           type="button"
           onClick={handleForgotPassword}
-          className="mb-4 text-xs text-blue-600 hover:underline dark:text-blue-400"
+          className="mb-4 text-xs text-indigo-600 hover:underline dark:text-indigo-400"
         >
           Passwort vergessen?
         </button>
@@ -92,19 +116,15 @@ function LoginForm() {
           </p>
         )}
 
-        <button
-          type="submit"
-          disabled={busy}
-          className="w-full rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-blue-700 disabled:opacity-60"
-        >
+        <button type="submit" disabled={busy} className={primaryButtonClass()}>
           {busy ? 'Bitte warten…' : 'Anmelden'}
         </button>
 
-        <p className="mt-4 text-xs text-neutral-400">
+        <p className="mt-4 text-center text-xs text-neutral-400">
           Kein Konto? Neue Zugänge werden von deinem Admin per Einladung eingerichtet.
         </p>
       </form>
-    </div>
+    </AuthCard>
   );
 }
 
@@ -137,14 +157,8 @@ function SetPasswordForm({ onDone }: { onDone: () => void }) {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-neutral-50 px-4 dark:bg-neutral-950">
-      <form
-        onSubmit={handleSubmit}
-        className="w-full max-w-sm rounded-xl border border-neutral-200 bg-white p-6 shadow-sm dark:border-neutral-700 dark:bg-neutral-900"
-      >
-        <h1 className="mb-1 text-xl font-bold text-neutral-900 dark:text-neutral-50">Passwort festlegen</h1>
-        <p className="mb-5 text-sm text-neutral-500">Bitte ein Passwort für dein Konto vergeben.</p>
-
+    <AuthCard title="Passwort festlegen" subtitle="Bitte ein Passwort für dein Konto vergeben">
+      <form onSubmit={handleSubmit}>
         <label className="mb-3 block text-sm">
           <span className="mb-1 block font-medium text-neutral-700 dark:text-neutral-300">Neues Passwort</span>
           <input
@@ -153,7 +167,7 @@ function SetPasswordForm({ onDone }: { onDone: () => void }) {
             autoComplete="new-password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm focus:border-blue-400 focus:outline-none dark:border-neutral-700 dark:bg-neutral-900"
+            className={fieldClass()}
           />
         </label>
 
@@ -165,21 +179,17 @@ function SetPasswordForm({ onDone }: { onDone: () => void }) {
             autoComplete="new-password"
             value={confirm}
             onChange={(e) => setConfirm(e.target.value)}
-            className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm focus:border-blue-400 focus:outline-none dark:border-neutral-700 dark:bg-neutral-900"
+            className={fieldClass()}
           />
         </label>
 
         {error && <p className="mb-3 text-sm text-red-600 dark:text-red-400">{error}</p>}
 
-        <button
-          type="submit"
-          disabled={busy}
-          className="w-full rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-blue-700 disabled:opacity-60"
-        >
+        <button type="submit" disabled={busy} className={primaryButtonClass()}>
           {busy ? 'Bitte warten…' : 'Passwort speichern'}
         </button>
       </form>
-    </div>
+    </AuthCard>
   );
 }
 
@@ -223,11 +233,11 @@ export default function AuthGate({ children }: { children: ReactNode }) {
 
   return (
     <div>
-      <div className="flex items-center justify-end gap-3 border-b border-neutral-200 bg-white px-4 py-1.5 text-xs text-neutral-500 dark:border-neutral-800 dark:bg-neutral-900">
+      <div className="sticky top-0 z-40 flex items-center justify-end gap-3 border-b border-neutral-200 bg-white/80 px-4 py-1.5 text-xs text-neutral-500 backdrop-blur dark:border-neutral-800 dark:bg-neutral-900/80">
         <span className="truncate">{session?.user.email}</span>
         <button
           onClick={() => supabase.auth.signOut()}
-          className="rounded border border-neutral-300 px-2 py-0.5 hover:bg-neutral-100 dark:border-neutral-700 dark:hover:bg-neutral-800"
+          className="rounded-full border border-neutral-300 px-2.5 py-0.5 font-medium transition hover:border-neutral-400 hover:bg-neutral-100 dark:border-neutral-700 dark:hover:bg-neutral-800"
         >
           Abmelden
         </button>

@@ -13,4 +13,19 @@ body,
 body {
   margin: 0;
   font-family: system-ui, 'Segoe UI', Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--color-indigo-500) 30%, transparent);
+}
+
+* {
+  scrollbar-color: var(--color-neutral-300) transparent;
+}
+@media (prefers-color-scheme: dark) {
+  * {
+    scrollbar-color: var(--color-neutral-700) transparent;
+  }
 }

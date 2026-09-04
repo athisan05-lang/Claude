@@ -218,43 +218,47 @@ export default function App() {
   }
 
   return (
-    <div className="mx-auto max-w-6xl px-4 py-6">
-      <div className="mb-1 flex items-center gap-3">
-        <button className="text-sm text-blue-600 hover:underline" onClick={backToSubProjectList}>
-          ← {project.name}
-        </button>
-      </div>
-      <div className="mb-4 flex items-center gap-3">
-        <input
-          className="min-w-0 flex-1 rounded border border-transparent bg-transparent px-1 py-0.5 text-xl font-semibold text-neutral-900 hover:border-neutral-300 focus:border-blue-400 focus:outline-none dark:text-neutral-50"
-          value={subProject.name}
-          onChange={(e) => updateSubProject(subProject.id, (sp) => ({ ...sp, name: e.target.value }))}
-        />
+    <div className="min-h-full bg-neutral-50 dark:bg-neutral-950">
+      <div className="border-b border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-900">
+        <div className="mx-auto max-w-6xl px-4 py-6">
+          <button
+            className="mb-2 text-sm font-medium text-indigo-600 transition hover:text-indigo-700 hover:underline dark:text-indigo-400"
+            onClick={backToSubProjectList}
+          >
+            ← {project.name}
+          </button>
+          <input
+            className="w-full min-w-0 rounded border border-transparent bg-transparent px-1 py-0.5 text-2xl font-bold tracking-tight text-neutral-900 transition hover:border-neutral-300 focus:border-indigo-400 focus:outline-none dark:text-neutral-50"
+            value={subProject.name}
+            onChange={(e) => updateSubProject(subProject.id, (sp) => ({ ...sp, name: e.target.value }))}
+          />
+
+          <div className="mt-5 inline-flex gap-1 rounded-lg bg-neutral-100 p-1 dark:bg-neutral-800">
+            <button
+              className={`rounded-md px-3.5 py-1.5 text-sm font-medium transition ${
+                tab === 'offerten'
+                  ? 'bg-white text-indigo-700 shadow-sm dark:bg-neutral-700 dark:text-indigo-300'
+                  : 'text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-200'
+              }`}
+              onClick={() => setTab('offerten')}
+            >
+              Offerten ({subProject.offers.length})
+            </button>
+            <button
+              className={`rounded-md px-3.5 py-1.5 text-sm font-medium transition ${
+                tab === 'vergleich'
+                  ? 'bg-white text-indigo-700 shadow-sm dark:bg-neutral-700 dark:text-indigo-300'
+                  : 'text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-200'
+              }`}
+              onClick={() => setTab('vergleich')}
+            >
+              Vergleich
+            </button>
+          </div>
+        </div>
       </div>
 
-      <div className="mb-4 flex gap-2 border-b border-neutral-200 dark:border-neutral-700">
-        <button
-          className={`px-3 py-2 text-sm font-medium ${
-            tab === 'offerten'
-              ? 'border-b-2 border-blue-600 text-blue-600'
-              : 'text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-200'
-          }`}
-          onClick={() => setTab('offerten')}
-        >
-          Offerten ({subProject.offers.length})
-        </button>
-        <button
-          className={`px-3 py-2 text-sm font-medium ${
-            tab === 'vergleich'
-              ? 'border-b-2 border-blue-600 text-blue-600'
-              : 'text-neutral-500 hover:text-neutral-800 dark:hover:text-neutral-200'
-          }`}
-          onClick={() => setTab('vergleich')}
-        >
-          Vergleich
-        </button>
-      </div>
-
+      <div className="mx-auto max-w-6xl px-4 py-6">
       {tab === 'offerten' && (
         <div className="space-y-6">
           <UploadArea onFiles={handleFiles} busy={busy} progressText={progressText} />
@@ -304,6 +308,7 @@ export default function App() {
           onUpdateGroup={updateGroupMeta}
         />
       )}
+      </div>
     </div>
   );
 }

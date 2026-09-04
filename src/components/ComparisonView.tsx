@@ -106,25 +106,25 @@ export default function ComparisonView({ projectName, offers, groups, onReassign
 
   return (
     <div>
-      <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="mb-5 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {computed.ranking.map(({ offer, total }, i) => (
           <div
             key={offer.id}
-            className={`rounded-lg border p-3 ${
+            className={`rounded-2xl border p-4 shadow-sm transition ${
               i === 0
                 ? 'border-green-300 bg-green-50 dark:border-green-800 dark:bg-green-950/30'
-                : 'border-neutral-200 dark:border-neutral-700'
+                : 'border-neutral-200 bg-white dark:border-neutral-700 dark:bg-neutral-900'
             }`}
           >
             <div className="flex items-center justify-between gap-2">
               <span className="truncate font-medium text-neutral-800 dark:text-neutral-100">{offer.name}</span>
               {i === 0 && (
-                <span className="whitespace-nowrap rounded-full bg-green-600 px-2 py-0.5 text-xs font-medium text-white">
-                  günstigster
+                <span className="whitespace-nowrap rounded-full bg-green-600 px-2 py-0.5 text-xs font-semibold text-white">
+                  🏆 günstigster
                 </span>
               )}
             </div>
-            <div className="mt-1 text-lg font-semibold text-neutral-900 dark:text-neutral-50">
+            <div className="mt-1 text-xl font-bold text-neutral-900 dark:text-neutral-50">
               CHF {formatCHF(total)}
             </div>
             {i > 0 && (
@@ -146,7 +146,7 @@ export default function ComparisonView({ projectName, offers, groups, onReassign
           placeholder="Position suchen (NPK-Nr. oder Bezeichnung)…"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          className="min-w-[220px] flex-1 rounded-lg border border-neutral-300 px-3 py-2 text-sm focus:border-blue-400 focus:outline-none dark:border-neutral-700 dark:bg-neutral-900"
+          className="min-w-[220px] flex-1 rounded-lg border border-neutral-300 px-3 py-2 text-sm transition focus:border-indigo-400 focus:outline-none focus:ring-4 focus:ring-indigo-500/10 dark:border-neutral-700 dark:bg-neutral-900"
         />
         <select
           value={sortMode}
@@ -166,10 +166,10 @@ export default function ComparisonView({ projectName, offers, groups, onReassign
           Nur Positionen mit Preisunterschied
         </label>
         <button
-          className="ml-auto whitespace-nowrap rounded bg-green-700 px-3 py-2 text-sm font-medium text-white hover:bg-green-800"
+          className="ml-auto whitespace-nowrap rounded-lg bg-gradient-to-b from-green-600 to-green-700 px-3.5 py-2 text-sm font-semibold text-white shadow-sm shadow-green-700/20 transition hover:from-green-700 hover:to-green-800"
           onClick={() => exportComparisonToExcel(projectName, offers, groups)}
         >
-          Als Excel exportieren
+          ⇩ Als Excel exportieren
         </button>
       </div>
 
@@ -184,10 +184,10 @@ export default function ComparisonView({ projectName, offers, groups, onReassign
         )}
       </p>
 
-      <div className="max-h-[70vh] overflow-auto rounded-lg border border-neutral-200 dark:border-neutral-700">
+      <div className="max-h-[70vh] overflow-auto rounded-2xl border border-neutral-200 shadow-sm dark:border-neutral-700">
         <table className="w-full min-w-[900px] text-sm">
           <thead className="sticky top-0 z-10">
-            <tr className="border-b border-neutral-200 bg-neutral-50 text-left text-xs uppercase text-neutral-500 dark:border-neutral-700 dark:bg-neutral-800">
+            <tr className="border-b border-neutral-200 bg-neutral-50 text-left text-[11px] font-semibold uppercase tracking-wide text-neutral-400 dark:border-neutral-700 dark:bg-neutral-800">
               <th className="px-2 py-2">NPK-Nr.</th>
               <th className="px-2 py-2">Bezeichnung</th>
               {offers.map((o) => (
@@ -199,7 +199,10 @@ export default function ComparisonView({ projectName, offers, groups, onReassign
           </thead>
           <tbody>
             {visibleRows.map(({ group, cells, min, descriptionMismatch, quantityMismatch }) => (
-              <tr key={group.id} className="border-b border-neutral-100 align-top dark:border-neutral-800">
+              <tr
+                key={group.id}
+                className="border-b border-neutral-100 align-top transition-colors hover:bg-neutral-50 dark:border-neutral-800 dark:hover:bg-neutral-800/40"
+              >
                 <td className="px-1 py-1">
                   <div className="flex items-center gap-1">
                     {descriptionMismatch && (
@@ -213,13 +216,13 @@ export default function ComparisonView({ projectName, offers, groups, onReassign
                     {quantityMismatch && (
                       <span
                         title="Mengen weichen zwischen den Offerten stark voneinander ab – bitte prüfen"
-                        className="text-blue-500"
+                        className="text-sky-500"
                       >
                         📏
                       </span>
                     )}
                     <input
-                      className="w-24 rounded border border-transparent bg-transparent px-1 py-0.5 hover:border-neutral-300 focus:border-blue-400 focus:outline-none"
+                      className="w-24 rounded border border-transparent bg-transparent px-1 py-0.5 hover:border-neutral-300 focus:border-indigo-400 focus:outline-none"
                       value={group.code}
                       onChange={(e) => onUpdateGroup(group.id, { code: e.target.value })}
                     />
@@ -227,7 +230,7 @@ export default function ComparisonView({ projectName, offers, groups, onReassign
                 </td>
                 <td className="px-1 py-1">
                   <input
-                    className="w-full min-w-[200px] rounded border border-transparent bg-transparent px-1 py-0.5 hover:border-neutral-300 focus:border-blue-400 focus:outline-none"
+                    className="w-full min-w-[200px] rounded border border-transparent bg-transparent px-1 py-0.5 hover:border-neutral-300 focus:border-indigo-400 focus:outline-none"
                     value={group.description}
                     onChange={(e) => onUpdateGroup(group.id, { description: e.target.value })}
                   />
@@ -244,7 +247,7 @@ export default function ComparisonView({ projectName, offers, groups, onReassign
                           <div>
                             <div className="font-medium">CHF {formatCHF(row.totalPrice)}</div>
                             <div
-                              className={`text-xs ${quantityMismatch ? 'font-medium text-blue-600 dark:text-blue-400' : 'text-neutral-500'}`}
+                              className={`text-xs ${quantityMismatch ? 'font-medium text-sky-600 dark:text-sky-400' : 'text-neutral-500'}`}
                             >
                               {row.quantity ?? '–'} {row.unit} × {formatCHF(row.unitPrice)}
                             </div>

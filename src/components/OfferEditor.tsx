@@ -33,7 +33,7 @@ export default function OfferEditor({ offer, onRename, onUpdateRow, onDeleteRow,
   const sum = offer.rows.reduce((s, r) => s + (r.totalPrice ?? 0), 0);
 
   return (
-    <div className="rounded-lg border border-neutral-200 dark:border-neutral-700">
+    <div className="overflow-hidden rounded-2xl border border-neutral-200 shadow-sm dark:border-neutral-700">
       {offer.ocrUsed && (
         <div className="border-b border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-300">
           ⚠ Diese Offerte war ein eingescanntes PDF und wurde per Texterkennung (OCR) gelesen. Das ist weniger
@@ -43,12 +43,12 @@ export default function OfferEditor({ offer, onRename, onUpdateRow, onDeleteRow,
       )}
       <div className="flex flex-wrap items-center gap-2 border-b border-neutral-200 bg-neutral-50 px-4 py-3 dark:border-neutral-700 dark:bg-neutral-800">
         <input
-          className="min-w-0 flex-1 rounded border border-transparent bg-transparent px-1 py-0.5 text-base font-semibold text-neutral-800 hover:border-neutral-300 focus:border-blue-400 focus:outline-none dark:text-neutral-100"
+          className="min-w-0 flex-1 rounded border border-transparent bg-transparent px-1 py-0.5 text-base font-semibold text-neutral-800 transition hover:border-neutral-300 focus:border-indigo-400 focus:outline-none dark:text-neutral-100"
           value={offer.name}
           onChange={(e) => onRename(e.target.value)}
         />
         <span className="text-xs text-neutral-500">{offer.fileName}</span>
-        <span className="text-sm font-medium text-neutral-700 dark:text-neutral-200">
+        <span className="rounded-full bg-white px-2.5 py-1 text-sm font-medium text-neutral-700 shadow-sm dark:bg-neutral-900 dark:text-neutral-200">
           Summe: CHF {formatCHF(sum)}
         </span>
         {confirmDelete ? (
@@ -63,7 +63,7 @@ export default function OfferEditor({ offer, onRename, onUpdateRow, onDeleteRow,
           </span>
         ) : (
           <button
-            className="rounded border border-red-300 px-2 py-1 text-xs text-red-600 hover:bg-red-50 dark:border-red-800 dark:hover:bg-red-950/40"
+            className="rounded-lg border border-red-300 px-2.5 py-1 text-xs font-medium text-red-600 transition hover:bg-red-50 dark:border-red-800 dark:hover:bg-red-950/40"
             onClick={() => setConfirmDelete(true)}
           >
             Offerte entfernen
@@ -74,7 +74,7 @@ export default function OfferEditor({ offer, onRename, onUpdateRow, onDeleteRow,
       <div className="overflow-x-auto">
         <table className="w-full min-w-[900px] text-sm">
           <thead>
-            <tr className="border-b border-neutral-200 text-left text-xs uppercase text-neutral-500 dark:border-neutral-700">
+            <tr className="border-b border-neutral-200 text-left text-[11px] font-semibold uppercase tracking-wide text-neutral-400 dark:border-neutral-700">
               <th className="px-2 py-2">NPK-Nr.</th>
               <th className="px-2 py-2">Bezeichnung</th>
               <th className="px-2 py-2 text-right">Menge</th>
@@ -88,48 +88,48 @@ export default function OfferEditor({ offer, onRename, onUpdateRow, onDeleteRow,
             {offer.rows.map((row) => (
               <tr
                 key={row.id}
-                className={`border-b border-neutral-100 dark:border-neutral-800 ${
+                className={`border-b border-neutral-100 transition-colors hover:bg-neutral-50 dark:border-neutral-800 dark:hover:bg-neutral-800/40 ${
                   row.autoDetected ? 'bg-amber-50 dark:bg-amber-950/20' : ''
                 }`}
               >
                 <td className="px-1 py-1">
                   <input
-                    className="w-24 rounded border border-transparent bg-transparent px-1 py-0.5 hover:border-neutral-300 focus:border-blue-400 focus:outline-none"
+                    className="w-24 rounded border border-transparent bg-transparent px-1 py-0.5 hover:border-neutral-300 focus:border-indigo-400 focus:outline-none"
                     value={row.code}
                     onChange={(e) => patchAndRecalc(row, { code: e.target.value })}
                   />
                 </td>
                 <td className="px-1 py-1">
                   <input
-                    className="w-full min-w-[220px] rounded border border-transparent bg-transparent px-1 py-0.5 hover:border-neutral-300 focus:border-blue-400 focus:outline-none"
+                    className="w-full min-w-[220px] rounded border border-transparent bg-transparent px-1 py-0.5 hover:border-neutral-300 focus:border-indigo-400 focus:outline-none"
                     value={row.description}
                     onChange={(e) => patchAndRecalc(row, { description: e.target.value })}
                   />
                 </td>
                 <td className="px-1 py-1">
                   <input
-                    className="w-20 rounded border border-transparent bg-transparent px-1 py-0.5 text-right hover:border-neutral-300 focus:border-blue-400 focus:outline-none"
+                    className="w-20 rounded border border-transparent bg-transparent px-1 py-0.5 text-right hover:border-neutral-300 focus:border-indigo-400 focus:outline-none"
                     value={row.quantity ?? ''}
                     onChange={(e) => patchAndRecalc(row, { quantity: numOrNull(e.target.value) })}
                   />
                 </td>
                 <td className="px-1 py-1">
                   <input
-                    className="w-16 rounded border border-transparent bg-transparent px-1 py-0.5 hover:border-neutral-300 focus:border-blue-400 focus:outline-none"
+                    className="w-16 rounded border border-transparent bg-transparent px-1 py-0.5 hover:border-neutral-300 focus:border-indigo-400 focus:outline-none"
                     value={row.unit}
                     onChange={(e) => patchAndRecalc(row, { unit: e.target.value })}
                   />
                 </td>
                 <td className="px-1 py-1">
                   <input
-                    className="w-24 rounded border border-transparent bg-transparent px-1 py-0.5 text-right hover:border-neutral-300 focus:border-blue-400 focus:outline-none"
+                    className="w-24 rounded border border-transparent bg-transparent px-1 py-0.5 text-right hover:border-neutral-300 focus:border-indigo-400 focus:outline-none"
                     value={row.unitPrice ?? ''}
                     onChange={(e) => patchAndRecalc(row, { unitPrice: numOrNull(e.target.value) })}
                   />
                 </td>
                 <td className="px-1 py-1">
                   <input
-                    className="w-24 rounded border border-transparent bg-transparent px-1 py-0.5 text-right font-medium hover:border-neutral-300 focus:border-blue-400 focus:outline-none"
+                    className="w-24 rounded border border-transparent bg-transparent px-1 py-0.5 text-right font-medium hover:border-neutral-300 focus:border-indigo-400 focus:outline-none"
                     value={row.totalPrice ?? ''}
                     onChange={(e) => patchAndRecalc(row, { totalPrice: numOrNull(e.target.value) })}
                   />
@@ -156,7 +156,7 @@ export default function OfferEditor({ offer, onRename, onUpdateRow, onDeleteRow,
         </table>
       </div>
       <div className="border-t border-neutral-200 px-4 py-2 dark:border-neutral-700">
-        <button className="text-sm text-blue-600 hover:underline" onClick={onAddRow}>
+        <button className="text-sm text-indigo-600 hover:underline" onClick={onAddRow}>
           + Position manuell hinzufügen
         </button>
         {offer.rows.some((r) => r.autoDetected) && (

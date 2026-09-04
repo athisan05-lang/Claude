@@ -18,8 +18,10 @@ export default function UploadArea({ onFiles, busy, progressText }: Props) {
 
   return (
     <div
-      className={`flex flex-col items-center justify-center rounded-lg border-2 border-dashed p-8 text-center transition-colors ${
-        dragOver ? 'border-blue-500 bg-blue-50 dark:bg-blue-950/30' : 'border-neutral-300 dark:border-neutral-700'
+      className={`flex flex-col items-center justify-center rounded-2xl border-2 border-dashed p-8 text-center transition-colors ${
+        dragOver
+          ? 'border-indigo-500 bg-indigo-50 dark:bg-indigo-950/30'
+          : 'border-neutral-300 hover:border-neutral-400 dark:border-neutral-700 dark:hover:border-neutral-600'
       }`}
       onDragOver={(e) => {
         e.preventDefault();
@@ -32,14 +34,15 @@ export default function UploadArea({ onFiles, busy, progressText }: Props) {
         handleFiles(e.dataTransfer.files);
       }}
     >
-      <p className="mb-2 text-sm text-neutral-600 dark:text-neutral-300">
+      <span className="mb-2 text-2xl">📄</span>
+      <p className="mb-3 text-sm text-neutral-600 dark:text-neutral-300">
         Offerten-PDFs hierher ziehen (ein PDF pro Anbieter) oder auswählen
       </p>
       <button
         type="button"
         disabled={busy}
         onClick={() => inputRef.current?.click()}
-        className="rounded bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+        className="rounded-lg bg-gradient-to-b from-indigo-500 to-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-sm shadow-indigo-600/20 transition hover:from-indigo-600 hover:to-indigo-700 disabled:opacity-50"
       >
         {busy ? 'Wird verarbeitet…' : 'PDFs auswählen'}
       </button>
