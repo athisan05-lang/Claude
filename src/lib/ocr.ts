@@ -51,12 +51,24 @@ export async function terminateOcrWorker(): Promise<void> {
   await Promise.all(existing.map(async (p) => (await p).terminate()));
 }
 
+// Harte Obergrenze für die längere Kante des gerenderten Bilds. Mit dem Handy gescannte
+// PDFs (z.B. Scanner-Apps) betten oft riesige Fotos ein - ohne Deckel würde eine Seite
+// bei scale 2 auf mehrere tausend Pixel Kantenlänge aufgeblasen, was die Texterkennung
+// pro Seite auf mehrere Minuten hochtreiben kann (wirkt dann wie eingefroren). Der Deckel
+// sorgt dafür, dass jede Seite unabhängig von der Quellauflösung in einer beschränkten,
+// vorhersagbaren Zeit erkannt wird.
+const MAX_RENDER_DIMENSION = 2200;
+
 async function renderPageToCanvas(page: PdfPage) {
   // Auflösung ist ein Kompromiss zwischen Erkennungsqualität und Geschwindigkeit -
   // scale 2 statt 3 spart ca. die Hälfte der Rechenzeit pro Seite, bei kaum schlechterer
   // Texterkennung (Zahlenspalten waren bei feiner gescannten Vorlagen auch mit scale 3
-  // schon an der Grenze der Lesbarkeit).
-  const viewport = page.getViewport({ scale: 2 });
+  // schon an der Grenze der Lesbarkeit). Zusätzlich nach oben gedeckelt (siehe
+  // MAX_RENDER_DIMENSION), falls die Seite selbst schon sehr hochauflösend ist.
+  const naturalViewport = page.getViewport({ scale: 1 });
+  const longestEdge = Math.max(naturalViewport.width, naturalViewport.height);
+  const scale = Math.min(2, MAX_RENDER_DIMENSION / longestEdge);
+  const viewport = page.getViewport({ scale });
   const canvas = document.createElement('canvas');
   canvas.width = viewport.width;
   canvas.height = viewport.height;
@@ -87,6 +99,28 @@ function toRows(data: Awaited<ReturnType<Worker['recognize']>>['data'], pageNum:
   return rows;
 }
 
+// Obergrenze pro Seite, damit ein einzelnes problematisches Bild (z.B. beschädigt oder
+// untypisch gross) niemals den gesamten Upload unbegrenzt blockieren kann. Grosszügig
+// bemessen (deutlich über der normalen Erkennungszeit einer Seite), aber endlich - die
+// betroffene Seite wird dann ohne erkannten Text übernommen, statt für immer zu "hängen".
+const PAGE_TIMEOUT_MS = 60_000;
+
+function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`Zeitüberschreitung bei ${label}`)), ms);
+    promise.then(
+      (v) => {
+        clearTimeout(timer);
+        resolve(v);
+      },
+      (e) => {
+        clearTimeout(timer);
+        reject(e);
+      },
+    );
+  });
+}
+
 /**
  * Erkennt den Text mehrerer gescannter (textloser) PDF-Seiten per OCR, verteilt auf
  * einen kleinen Pool paralleler Worker statt sie nacheinander abzuarbeiten. Liefert die
@@ -108,10 +142,21 @@ export async function ocrPages(
     for (;;) {
       const pageNum = queue.shift();
       if (pageNum === undefined) return;
-      const page = await doc.getPage(pageNum);
-      const canvas = await renderPageToCanvas(page);
-      const { data } = await worker.recognize(canvas, {}, { blocks: true, text: false, hocr: false, tsv: false });
-      results.set(pageNum, toRows(data, pageNum));
+      try {
+        const { data } = await withTimeout(
+          (async () => {
+            const page = await doc.getPage(pageNum);
+            const canvas = await renderPageToCanvas(page);
+            return worker.recognize(canvas, {}, { blocks: true, text: false, hocr: false, tsv: false });
+          })(),
+          PAGE_TIMEOUT_MS,
+          `Seite ${pageNum}`,
+        );
+        results.set(pageNum, toRows(data, pageNum));
+      } catch (err) {
+        console.error(`OCR für Seite ${pageNum} fehlgeschlagen/zu langsam, wird übersprungen:`, err);
+        results.set(pageNum, []);
+      }
       done++;
       onProgress?.({ page: pageNum, pageCount, status: 'Texterkennung (OCR) läuft', progress: done / pageNumbers.length });
     }
